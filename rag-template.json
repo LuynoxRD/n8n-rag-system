@@ -1,0 +1,310 @@
+{
+  "name": "Rag Supabase",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RAG_Documentos"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "c7b8c078-f521-419c-aff0-362205e5c9a6",
+      "name": "📁 Google Drive — Nuevo Archivo",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        48,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-pdf",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "application/pdf",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "cond-word",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "officedocument",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "cond-txt",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "text/plain",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "8895237e-4116-4034-9505-23cb81c4ce6a",
+      "name": "🔍 Filtrar — Solo Docs Válidos",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "googleFileConversion": {}
+        }
+      },
+      "id": "4181c96e-e920-4e4c-92f7-7c6f7ede4f27",
+      "name": "⬇️ Descargar Archivo",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        544,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "extractFromFile"
+      },
+      "id": "0e64e40b-deb4-4234-b84e-4b1a2027a4d3",
+      "name": "📄 Extraer Texto (PDF / Word)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        832,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.first().json.text || $input.first().json.data || '';\n\nlet cleaned = text\n  .replace(/\\r\\n/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .replace(/[ \\t]{2,}/g, ' ')\n  .trim();\n\ncleaned = cleaned.replace(/[^\\x20-\\x7E\\n\\u00C0-\\u024F]/g, '');\n\nconst words = cleaned.split(/\\s+/);\nconst chunkSize = 500;\nconst overlap = 50;\nconst chunks = [];\n\nfor (let i = 0; i < words.length; i += chunkSize - overlap) {\n  const chunk = words.slice(i, i + chunkSize).join(' ');\n  if (chunk.trim().length > 50) {\n    chunks.push({\n      chunk_text: chunk,\n      chunk_index: chunks.length,\n      source_file: $('📁 Google Drive — Nuevo Archivo').first().json.name || 'desconocido',\n      source_id: $('📁 Google Drive — Nuevo Archivo').first().json.id || '',\n      total_words: words.length,\n      created_at: new Date().toISOString()\n    });\n  }\n}\n\nreturn chunks.map(c => ({ json: c }));"
+      },
+      "id": "dd12da24-a9c3-4e5c-9eba-5910d46f0ad3",
+      "name": "🧹 Limpiar y Dividir en Chunks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "text-embedding-3-small"
+            },
+            {
+              "name": "input",
+              "value": "={{ $json.chunk_text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5d3c307-b507-4633-a2e6-aeee88710869",
+      "name": "🧠 Generar Embedding (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const embeddingData = $input.first().json;\nconst embedding = embeddingData.data?.[0]?.embedding || [];\nconst chunk = $('🧹 Limpiar y Dividir en Chunks').first().json;\n\nreturn [{\n  json: {\n    content: chunk.chunk_text,\n    embedding: embedding,\n    metadata: {\n      source_file: chunk.source_file,\n      source_id: chunk.source_id,\n      chunk_index: chunk.chunk_index,\n      total_words: chunk.total_words\n    },\n    created_at: chunk.created_at\n  }\n}];"
+      },
+      "id": "3dbf77be-296a-4181-950e-ac0b372c6d20",
+      "name": "🔗 Combinar Chunk + Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert"
+      },
+      "id": "781135e2-529b-4931-bbe5-380ea1cb92f1",
+      "name": "🗄️ Supabase — Insertar Documento",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert"
+      },
+      "id": "0e8745a5-5f65-4e0d-8b73-737501027592",
+      "name": "📝 Supabase — Registrar en Log",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        16
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "📁 Google Drive — Nuevo Archivo": {
+      "main": [
+        [
+          {
+            "node": "🔍 Filtrar — Solo Docs Válidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Filtrar — Solo Docs Válidos": {
+      "main": [
+        [
+          {
+            "node": "⬇️ Descargar Archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⬇️ Descargar Archivo": {
+      "main": [
+        [
+          {
+            "node": "📄 Extraer Texto (PDF / Word)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📄 Extraer Texto (PDF / Word)": {
+      "main": [
+        [
+          {
+            "node": "🧹 Limpiar y Dividir en Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧹 Limpiar y Dividir en Chunks": {
+      "main": [
+        [
+          {
+            "node": "🧠 Generar Embedding (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 Generar Embedding (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "🔗 Combinar Chunk + Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔗 Combinar Chunk + Embedding": {
+      "main": [
+        [
+          {
+            "node": "🗄️ Supabase — Insertar Documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🗄️ Supabase — Insertar Documento": {
+      "main": [
+        [
+          {
+            "node": "📝 Supabase — Registrar en Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "eff17be9-f73e-4df3-b848-131c88215ecb",
+  "meta": {
+    "instanceId": "d2c64d75e5337539a40c4e6cc45f4b9cba788171c379050e5e765d83eb81edeb"
+  },
+  "id": "FLOFgtvPwNgLy9Ep",
+  "tags": []
+}
