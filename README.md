@@ -23,7 +23,7 @@ Para desplegar este pipeline en tu propio entorno, sigue estos pasos:
 6. Revisa los nodos de conexión y configura tus credenciales de Google Drive, Ollama y Supabase antes de activar el flujo.
 
 ## 🏗️ Arquitectura General
-Este flujo representa exclusivamente la capa de ingesta de datos. Para comprender cómo este pipeline alimenta el backend de búsqueda semántica y se integra con la interfaz de usuario, revisa la documentación completa y la arquitectura del sistema en el artículo del blog.
+Este flujo representa exclusivamente la capa de ingesta de datos. Para comprender cómo este pipeline alimenta el backend de búsqueda semántica y se integra con la interfaz de usuario, revisa la documentación completa y la arquitectura del sistema RAG en el artículo del blog. https://luynoxrd.com/como-crear-sistema-rag-empresarial/
 
 
 ## 📄 Licencia
