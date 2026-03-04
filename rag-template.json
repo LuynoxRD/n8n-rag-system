@@ -19,13 +19,13 @@
         "event": "fileCreated",
         "options": {}
       },
-      "id": "c7b8c078-f521-419c-aff0-362205e5c9a6",
+      "id": "f423b922-5e72-4ac2-93ab-977ea71449ed",
       "name": "📁 Google Drive — Nuevo Archivo",
       "type": "n8n-nodes-base.googleDriveTrigger",
       "typeVersion": 1,
       "position": [
-        48,
-        -32
+        -224,
+        256
       ]
     },
     {
@@ -69,13 +69,13 @@
         },
         "options": {}
       },
-      "id": "8895237e-4116-4034-9505-23cb81c4ce6a",
+      "id": "02f976f7-7715-4424-9c3c-7ba1e46c87b0",
       "name": "🔍 Filtrar — Solo Docs Válidos",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2,
       "position": [
-        272,
-        -288
+        0,
+        0
       ]
     },
     {
@@ -90,47 +90,45 @@
           "googleFileConversion": {}
         }
       },
-      "id": "4181c96e-e920-4e4c-92f7-7c6f7ede4f27",
+      "id": "864cde99-4113-4358-b64e-2a65577fb174",
       "name": "⬇️ Descargar Archivo",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
-        544,
-        -288
+        272,
+        0
       ]
     },
     {
       "parameters": {
         "operation": "extractFromFile"
       },
-      "id": "0e64e40b-deb4-4234-b84e-4b1a2027a4d3",
+      "id": "797b9223-8b8c-45ff-af9d-96d778304964",
       "name": "📄 Extraer Texto (PDF / Word)",
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1,
       "position": [
-        832,
-        -288
+        560,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "const text = $input.first().json.text || $input.first().json.data || '';\n\nlet cleaned = text\n  .replace(/\\r\\n/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .replace(/[ \\t]{2,}/g, ' ')\n  .trim();\n\ncleaned = cleaned.replace(/[^\\x20-\\x7E\\n\\u00C0-\\u024F]/g, '');\n\nconst words = cleaned.split(/\\s+/);\nconst chunkSize = 500;\nconst overlap = 50;\nconst chunks = [];\n\nfor (let i = 0; i < words.length; i += chunkSize - overlap) {\n  const chunk = words.slice(i, i + chunkSize).join(' ');\n  if (chunk.trim().length > 50) {\n    chunks.push({\n      chunk_text: chunk,\n      chunk_index: chunks.length,\n      source_file: $('📁 Google Drive — Nuevo Archivo').first().json.name || 'desconocido',\n      source_id: $('📁 Google Drive — Nuevo Archivo').first().json.id || '',\n      total_words: words.length,\n      created_at: new Date().toISOString()\n    });\n  }\n}\n\nreturn chunks.map(c => ({ json: c }));"
       },
-      "id": "dd12da24-a9c3-4e5c-9eba-5910d46f0ad3",
+      "id": "a5a21c81-5016-4242-8a79-57a3a47fbb15",
       "name": "🧹 Limpiar y Dividir en Chunks",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1104,
-        -288
+        832,
+        0
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/embeddings",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "http://localhost:11434/api/embeddings",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -145,63 +143,104 @@
           "parameters": [
             {
               "name": "model",
-              "value": "text-embedding-3-small"
+              "value": "nomic-embed-text"
             },
             {
-              "name": "input",
+              "name": "prompt",
               "value": "={{ $json.chunk_text }}"
             }
           ]
         },
         "options": {}
       },
-      "id": "d5d3c307-b507-4633-a2e6-aeee88710869",
-      "name": "🧠 Generar Embedding (OpenAI)",
+      "id": "0b26f521-eba8-47b8-b59a-cd80ff926e92",
+      "name": "🧠 Generar Embedding (Ollama)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        560,
-        16
+        288,
+        304
       ]
     },
     {
       "parameters": {
-        "jsCode": "const embeddingData = $input.first().json;\nconst embedding = embeddingData.data?.[0]?.embedding || [];\nconst chunk = $('🧹 Limpiar y Dividir en Chunks').first().json;\n\nreturn [{\n  json: {\n    content: chunk.chunk_text,\n    embedding: embedding,\n    metadata: {\n      source_file: chunk.source_file,\n      source_id: chunk.source_id,\n      chunk_index: chunk.chunk_index,\n      total_words: chunk.total_words\n    },\n    created_at: chunk.created_at\n  }\n}];"
+        "jsCode": "const embeddingData = $input.first().json;\nconst embedding = embeddingData.embedding || [];\nconst chunk = $('🧹 Limpiar y Dividir en Chunks').first().json;\n\nreturn [{\n  json: {\n    content: chunk.chunk_text,\n    embedding: embedding,\n    metadata: {\n      source_file: chunk.source_file,\n      source_id: chunk.source_id,\n      chunk_index: chunk.chunk_index,\n      total_words: chunk.total_words\n    },\n    created_at: chunk.created_at\n  }\n}];"
       },
-      "id": "3dbf77be-296a-4181-950e-ac0b372c6d20",
+      "id": "55c79df8-a161-4b57-9d57-c8446617887f",
       "name": "🔗 Combinar Chunk + Embedding",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        832,
-        16
+        560,
+        304
       ]
     },
     {
       "parameters": {
         "operation": "insert"
       },
-      "id": "781135e2-529b-4931-bbe5-380ea1cb92f1",
+      "id": "8e2edf5f-98b2-44a7-ad4f-1aea7a3617d1",
       "name": "🗄️ Supabase — Insertar Documento",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1120,
-        16
+        848,
+        304
       ]
     },
     {
       "parameters": {
         "operation": "insert"
       },
-      "id": "0e8745a5-5f65-4e0d-8b73-737501027592",
+      "id": "8620ed0d-747b-4984-b397-828a5aae39d6",
       "name": "📝 Supabase — Registrar en Log",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1360,
-        16
+        1088,
+        304
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\nconst workflowName = $workflow.name;\nconst timestamp = new Date().toISOString();\n\nlet archivoFallido = 'desconocido';\ntry {\n  archivoFallido = $('📁 Google Drive — Nuevo Archivo').first().json.name || 'desconocido';\n} catch(e) {}\n\nreturn [{\n  json: {\n    archivo: archivoFallido,\n    workflow: workflowName,\n    error: error.message || JSON.stringify(error),\n    nodo_fallido: $execution.lastNodeExecuted || 'desconocido',\n    timestamp\n  }\n}];"
+      },
+      "id": "ec1a229a-f068-4c57-bd63-e8c71ad18e77",
+      "name": "⚠️ Preparar Info del Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert"
+      },
+      "id": "24dd6e81-4336-43ac-869b-4d5339e252cb",
+      "name": "🔴 Supabase — Registrar Error",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "subject": "=❌ RAG Ingesta Fallida — {{ $json.archivo }}",
+        "options": {}
+      },
+      "id": "edbcc07e-42fb-4eb1-99f2-ccef76772b7b",
+      "name": "📧 Email — Notificar Error",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1328,
+        608
+      ],
+      "webhookId": "e4e59194-9888-4dce-92b3-3766d521b692"
     }
   ],
   "pinData": {},
@@ -254,14 +293,14 @@
       "main": [
         [
           {
-            "node": "🧠 Generar Embedding (OpenAI)",
+            "node": "🧠 Generar Embedding (Ollama)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "🧠 Generar Embedding (OpenAI)": {
+    "🧠 Generar Embedding (Ollama)": {
       "main": [
         [
           {
@@ -293,6 +332,39 @@
           }
         ]
       ]
+    },
+    "⚠️ Preparar Info del Error": {
+      "main": [
+        [
+          {
+            "node": "🔴 Supabase — Registrar Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔴 Supabase — Registrar Error": {
+      "main": [
+        [
+          {
+            "node": "📧 Email — Notificar Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Supabase — Registrar en Log": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Preparar Info del Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -301,10 +373,10 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "eff17be9-f73e-4df3-b848-131c88215ecb",
+  "versionId": "2d9c9c2d-5298-4992-8920-cc5ac50b78f4",
   "meta": {
     "instanceId": "d2c64d75e5337539a40c4e6cc45f4b9cba788171c379050e5e765d83eb81edeb"
   },
-  "id": "FLOFgtvPwNgLy9Ep",
+  "id": "D7Cfn4JOeBq3y6r5",
   "tags": []
 }
