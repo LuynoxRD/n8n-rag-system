@@ -1,0 +1,200 @@
+{
+  "name": "Rag Supabase — Principal",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RAG_Documentos"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "f423b922-5e72-4ac2-93ab-977ea71449ed",
+      "name": "📁 Google Drive — Nuevo Archivo",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [-224, 256]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-pdf",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "application/pdf",
+              "operator": { "type": "string", "operation": "contains" }
+            },
+            {
+              "id": "cond-word",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "officedocument",
+              "operator": { "type": "string", "operation": "contains" }
+            },
+            {
+              "id": "cond-txt",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "text/plain",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "02f976f7-7715-4424-9c3c-7ba1e46c87b0",
+      "name": "🔍 Filtrar — Solo Docs Válidos",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "googleFileConversion": {}
+        }
+      },
+      "id": "864cde99-4113-4358-b64e-2a65577fb174",
+      "name": "⬇️ Descargar Archivo",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [272, 0]
+    },
+    {
+      "parameters": {
+        "operation": "extractFromFile"
+      },
+      "id": "797b9223-8b8c-45ff-af9d-96d778304964",
+      "name": "📄 Extraer Texto (PDF / Word)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [560, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── Chunking por estructura lógica (no por tamaño fijo) ─────────────────\n// Respetar separadores naturales del documento evita cortar títulos y\n// procedimientos a la mitad, lo que genera alucinaciones en el RAG.\n\nconst text       = $input.first().json.text || $input.first().json.data || '';\nconst sourceFile = $('📁 Google Drive — Nuevo Archivo').first().json.name || 'desconocido';\nconst sourceId   = $('📁 Google Drive — Nuevo Archivo').first().json.id   || '';\n\n// Limpieza: normalizar saltos de línea y espacios extra\nconst cleaned = text\n  .replace(/\\r\\n/g, '\\n')\n  .replace(/\\n{4,}/g, '\\n\\n\\n')\n  .replace(/[ \\t]{2,}/g, ' ')\n  .trim();\n\nconst MAX_TOKENS  = 500;\nconst OVERLAP     = 50;\nconst SEPARADORES = ['\\n\\n\\n', '\\n\\n', '\\n', '. '];\n\nfunction contarTokens(texto) {\n  return Math.ceil(texto.split(/\\s+/).length / 0.75);\n}\n\nfunction dividirPorSeparador(texto, separadores) {\n  for (const sep of separadores) {\n    const partes = texto.split(sep).filter(p => p.trim().length > 0);\n    if (partes.length > 1) return partes;\n  }\n  return [texto];\n}\n\nfunction crearChunks(texto) {\n  const secciones = dividirPorSeparador(texto, SEPARADORES);\n  const chunks    = [];\n  let   buffer    = '';\n  let   overlap   = '';\n\n  for (const seccion of secciones) {\n    const candidato = overlap + (buffer ? '\\n\\n' + seccion : seccion);\n    if (contarTokens(candidato) <= MAX_TOKENS) {\n      buffer = candidato;\n    } else {\n      if (buffer.trim()) {\n        chunks.push(buffer.trim());\n        const palabras = buffer.split(/\\s+/);\n        overlap = palabras.slice(-OVERLAP).join(' ');\n      }\n      buffer  = overlap + '\\n\\n' + seccion;\n      overlap = '';\n    }\n  }\n  if (buffer.trim()) chunks.push(buffer.trim());\n  return chunks;\n}\n\nconst chunks = crearChunks(cleaned);\n\nreturn chunks\n  .filter(chunk => chunk.trim().length > 50)\n  .map((chunk, index) => ({\n    json: {\n      chunk_text:   chunk,\n      chunk_index:  index,\n      source_file:  sourceFile,\n      source_id:    sourceId,\n      total_chunks: chunks.length,\n      tokens_aprox: contarTokens(chunk),\n      created_at:   new Date().toISOString()\n    }\n  }));"
+      },
+      "id": "a5a21c81-5016-4242-8a79-57a3a47fbb15",
+      "name": "🧹 Limpiar y Dividir en Chunks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [832, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model",  "value": "nomic-embed-text" },
+            { "name": "prompt", "value": "={{ $json.chunk_text }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0b26f521-eba8-47b8-b59a-cd80ff926e92",
+      "name": "🧠 Generar Embedding (Ollama)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [288, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "const embeddingData = $input.first().json;\nconst embedding     = embeddingData.embedding || [];\nconst chunk         = $('🧹 Limpiar y Dividir en Chunks').first().json;\n\nreturn [{\n  json: {\n    content:   chunk.chunk_text,\n    embedding: embedding,\n    metadata: {\n      source_file:  chunk.source_file,\n      source_id:    chunk.source_id,\n      chunk_index:  chunk.chunk_index,\n      total_chunks: chunk.total_chunks,\n      tokens_aprox: chunk.tokens_aprox\n    },\n    created_at: chunk.created_at\n  }\n}];"
+      },
+      "id": "55c79df8-a161-4b57-9d57-c8446617887f",
+      "name": "🔗 Combinar Chunk + Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 304]
+    },
+    {
+      "parameters": {
+        "operation": "insert"
+      },
+      "id": "8e2edf5f-98b2-44a7-ad4f-1aea7a3617d1",
+      "name": "🗄️ Supabase — Insertar Documento",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [848, 304]
+    },
+    {
+      "parameters": {
+        "operation": "insert"
+      },
+      "id": "8620ed0d-747b-4984-b397-828a5aae39d6",
+      "name": "📝 Supabase — Registrar en Log",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1088, 304]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "📁 Google Drive — Nuevo Archivo": {
+      "main": [[{ "node": "🔍 Filtrar — Solo Docs Válidos", "type": "main", "index": 0 }]]
+    },
+    "🔍 Filtrar — Solo Docs Válidos": {
+      "main": [[{ "node": "⬇️ Descargar Archivo", "type": "main", "index": 0 }]]
+    },
+    "⬇️ Descargar Archivo": {
+      "main": [[{ "node": "📄 Extraer Texto (PDF / Word)", "type": "main", "index": 0 }]]
+    },
+    "📄 Extraer Texto (PDF / Word)": {
+      "main": [[{ "node": "🧹 Limpiar y Dividir en Chunks", "type": "main", "index": 0 }]]
+    },
+    "🧹 Limpiar y Dividir en Chunks": {
+      "main": [[{ "node": "🧠 Generar Embedding (Ollama)", "type": "main", "index": 0 }]]
+    },
+    "🧠 Generar Embedding (Ollama)": {
+      "main": [[{ "node": "🔗 Combinar Chunk + Embedding", "type": "main", "index": 0 }]]
+    },
+    "🔗 Combinar Chunk + Embedding": {
+      "main": [[{ "node": "🗄️ Supabase — Insertar Documento", "type": "main", "index": 0 }]]
+    },
+    "🗄️ Supabase — Insertar Documento": {
+      "main": [[{ "node": "📝 Supabase — Registrar en Log", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "errorWorkflow": "RAG Supabase — Manejo de Errores"
+  },
+  "versionId": "4a9g2b3c-7d5e-6104-a142-ee7cb72d90h6",
+  "meta": {
+    "instanceId": "d2c64d75e5337539a40c4e6cc45f4b9cba788171c379050e5e765d83eb81edeb"
+  },
+  "id": "D7Cfn4JOeBq3y6r5",
+  "tags": []
+}
