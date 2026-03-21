@@ -1,0 +1,78 @@
+{
+  "name": "RAG Supabase — Manejo de Errores",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "🚨 Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "N8n activa este nodo automáticamente cuando cualquier nodo del workflow principal falla. Recibe los datos del error: qué nodo falló, el mensaje de error y el nombre del archivo que se estaba procesando."
+    },
+    {
+      "parameters": {
+        "jsCode": "// El Error Trigger entrega toda la info del fallo en $json\nconst errorData = $input.first().json;\n\n// Extraer datos del error\nconst mensajeError = errorData.execution?.error?.message\n                  || errorData.error?.message\n                  || 'Error desconocido';\n\nconst nodoFallido  = errorData.execution?.lastNodeExecuted\n                  || 'Nodo desconocido';\n\nconst workflowName = errorData.workflow?.name\n                  || 'Rag Supabase — Principal';\n\n// Intentar recuperar el nombre del archivo del contexto del error\nlet archivoFallido = 'desconocido';\ntry {\n  const inputData = errorData.execution?.error?.context?.nodeType || '';\n  archivoFallido  = errorData.execution?.data?.startData?.destinationNode\n                 || errorData.execution?.workflowData?.name\n                 || 'desconocido';\n} catch (e) {}\n\nconst timestamp = new Date().toISOString();\n\nreturn [{\n  json: {\n    archivo:       archivoFallido,\n    workflow:      workflowName,\n    error_mensaje: mensajeError,\n    nodo_fallido:  nodoFallido,\n    timestamp,\n    // Asunto listo para usar en el email\n    email_subject: `❌ RAG Ingesta Fallida — ${archivoFallido}`,\n    email_body:    `Se produjo un error en el pipeline RAG.\\n\\nWorkflow: ${workflowName}\\nNodo fallido: ${nodoFallido}\\nArchivo: ${archivoFallido}\\nError: ${mensajeError}\\nFecha: ${timestamp}`\n  }\n}];"
+      },
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "⚠️ Preparar Info del Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "ingesta_log",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "archivo",       "fieldValue": "={{ $json.archivo }}" },
+            { "fieldId": "estado",        "fieldValue": "error" },
+            { "fieldId": "error_mensaje", "fieldValue": "={{ $json.error_mensaje }}" },
+            { "fieldId": "nodo_fallido",  "fieldValue": "={{ $json.nodo_fallido }}" }
+          ]
+        }
+      },
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "name": "🔴 Supabase — Registrar Error",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+      "name": "📧 Email — Notificar Error",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [960, 300],
+      "notes": "Configura el destinatario en las credenciales del nodo de email antes de activar este workflow."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "🚨 Error Trigger": {
+      "main": [[{ "node": "⚠️ Preparar Info del Error", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Preparar Info del Error": {
+      "main": [[{ "node": "🔴 Supabase — Registrar Error", "type": "main", "index": 0 }]]
+    },
+    "🔴 Supabase — Registrar Error": {
+      "main": [[{ "node": "📧 Email — Notificar Error", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5b0h3c4d-8e6f-7215-b253-ff8dc83e01i7",
+  "meta": {
+    "instanceId": "d2c64d75e5337539a40c4e6cc45f4b9cba788171c379050e5e765d83eb81edeb"
+  },
+  "id": "ERR01HandlerRAG",
+  "tags": []
+}
